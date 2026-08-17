@@ -31,40 +31,68 @@ if module.startswith("1"):
         selected = st.multiselect("Colunas da planilha", MODULE1_COLUMNS, default=MODULE1_COLUMNS)
     with col_b:
         minimum = st.number_input("Valor mínimo da parcela (R$)", min_value=0.0, value=60.0, step=1.0)
+        st.caption("Parcelas abaixo desse valor ficam destacadas em vermelho, com aviso.")
     if len(files) > 100:
         st.error("O limite é de 100 PDFs por processamento.")
     elif files and st.button("Processar PDFs", type="primary"):
-        rows, errors = [], []
+        rows, errors, flags = [], [], []
         totals = new_plan_totals()
         progress = st.progress(0)
         for i, file in enumerate(files):
             try:
                 row = parse_previsao_pdf(io.BytesIO(file.getvalue()), file.name)
+                row = apply_installment_columns(row, minimum)
                 accumulate_plan_totals(totals, row)
-                rows.append(apply_installment_columns(row, minimum))
+                for label, message in row.get("_flags", {}).items():
+                    flags.append({"row": len(rows), "column": label, "message": message,
+                                  "arquivo": file.name, "idfisico": row.get("IdFisico", "")})
+                row.pop("_flags", None)
+                row.pop("_plans", None)
+                rows.append(row)
             except Exception as exc:
                 errors.append({"Arquivo": file.name, "Erro": str(exc)})
             progress.progress((i + 1) / len(files))
         st.session_state["module1_result"] = pd.DataFrame(rows)
         st.session_state["module1_errors"] = errors
         st.session_state["module1_totals"] = totals
+        st.session_state["module1_flags"] = flags
 
     if "module1_result" in st.session_state:
         df = st.session_state["module1_result"]
         visible = [c for c in selected if c in df.columns]
         result = df[visible] if visible else df.iloc[:, 0:0]
+        flags = st.session_state.get("module1_flags", [])
+        visible_flags = [f for f in flags if f["column"] in result.columns]
         if visible and not df.empty and "module1_totals" in st.session_state:
             total_row = build_total_row(st.session_state["module1_totals"], list(result.columns))
             result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
-            st.caption("Linha TOTAL: soma o valor de cada plano entre todos os cadastros processados.")
+            st.caption("Linha TOTAL: soma os valores das parcelas exibidas em cada coluna.")
         st.subheader("Prévia")
-        st.dataframe(result, use_container_width=True, hide_index=True)
+        if visible_flags and not result.empty:
+            mask = pd.DataFrame(False, index=result.index, columns=result.columns)
+            for f in visible_flags:
+                if f["row"] < len(df):
+                    mask.loc[f["row"], f["column"]] = True
+
+            def _flag_style(frame):
+                styles = pd.DataFrame("", index=frame.index, columns=frame.columns)
+                m = mask.reindex(index=frame.index, columns=frame.columns).fillna(False)
+                return styles.where(~m, "background-color: #ffc7ce; color: #9c0006; font-weight: bold")
+
+            st.dataframe(result.style.apply(_flag_style, axis=None), use_container_width=True, hide_index=True)
+            with st.expander(f"🔔 {len(visible_flags)} aviso(s) — parcela abaixo do mínimo (células em vermelho)"):
+                for f in visible_flags:
+                    st.markdown(f"- **IdFisico {f['idfisico']}** ({f['arquivo']}) — **{f['column']}**: {f['message']}")
+        else:
+            st.dataframe(result, use_container_width=True, hide_index=True)
         if st.session_state.get("module1_errors"):
             st.warning(f"{len(st.session_state['module1_errors'])} arquivo(s) apresentaram erro.")
             st.dataframe(pd.DataFrame(st.session_state["module1_errors"]), hide_index=True)
         if not result.empty:
-            st.download_button("⬇️ Baixar Excel", dataframe_to_xlsx(result, "Previsões"),
-                               "previsoes_parcelamento.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button("⬇️ Baixar Excel",
+                               dataframe_to_xlsx(result, "Previsões", flags=visible_flags),
+                               "previsoes_parcelamento.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 else:
     st.header("Módulo 2 — Cruzamento de débitos e imóveis")

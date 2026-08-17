@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 import re
 import unicodedata
 from datetime import date, datetime
@@ -122,18 +123,36 @@ def parse_previsao_pdf(file: BinaryIO, filename: str = "") -> dict:
 
 
 def apply_installment_columns(row: dict, minimum: float = 60.0) -> dict:
-    blocked = False
+    """Preenche as colunas dos planos com o VALOR DA PARCELA (numérico),
+    exatamente como aparece no PDF.
+
+    Todos os planos aparecem sempre (sem regra de ocultação). Planos com
+    parcela abaixo do mínimo são registrados em ``row["_flags"]`` para
+    destaque em vermelho e aviso.
+    """
+    flags: dict[str, str] = {}
     for label, key in PLAN_LABELS:
         plan = row["_plans"].get(key, {})
-        count, value = plan.get("count"), plan.get("installment")
-        if blocked or value is None:
-            row[label] = ""
-        elif key != "avista" and value < minimum:
-            blocked = True
-            row[label] = ""
+        value, total = plan.get("installment"), plan.get("total")
+        if isinstance(value, (int, float)):
+            row[label] = float(value)
+            if (key != "avista" and minimum > 0
+                    and value < minimum and isinstance(total, (int, float))):
+                max_n = math.floor(float(total) / minimum)
+                if max_n >= 1:
+                    flags[label] = (
+                        f"Parcela de {br_currency(value)} está abaixo do mínimo de "
+                        f"{br_currency(minimum)}; mantendo o mínimo, o máximo é de "
+                        f"{max_n} parcela{'s' if max_n != 1 else ''}."
+                    )
+                else:
+                    flags[label] = (
+                        f"Parcela de {br_currency(value)} está abaixo do mínimo de "
+                        f"{br_currency(minimum)}; não é possível parcelar mantendo esse mínimo."
+                    )
         else:
-            row[label] = f"{count}x de " + br_currency(value)
-    row.pop("_plans", None)
+            row[label] = None
+    row["_flags"] = flags
     return row
 
 
@@ -143,22 +162,21 @@ def new_plan_totals() -> dict[str, float]:
 
 
 def accumulate_plan_totals(totals: dict[str, float], row: dict) -> None:
-    """Soma os totais de cada plano de uma linha recém-processada ao acumulado geral."""
+    """Soma os valores das parcelas de cada plano de uma linha processada.
+
+    A linha TOTAL soma exatamente o que aparece nas células (=SOMA bate).
+    """
     if isinstance(row.get("Normal"), (int, float)):
         totals["Normal"] += float(row["Normal"])
     for _, key in PLAN_LABELS:
         plan = row.get("_plans", {}).get(key) or {}
-        value = plan.get("total")
-        if isinstance(value, (int, float)):
-            totals[key] += float(value)
+        if isinstance(plan.get("installment"), (int, float)):
+            totals[key] += float(plan["installment"])
 
 
 def build_total_row(totals: dict[str, float], columns: list[str]) -> dict:
-    """Última linha da exportação: soma de cada plano entre todos os cadastros.
-
-    O rótulo 'TOTAL' fica na primeira coluna cadastral visível (IdFisico,
-    responsável etc.); os planos visíveis recebem o valor total em R$.
-    """
+    """Última linha da exportação: soma dos valores das parcelas de cada
+    plano entre todos os cadastros (bate com a =SOMA() das colunas)."""
     plan_columns = {label for label, _ in PLAN_LABELS} | {"Normal"}
     label_col = next((c for c in CADASTRAL_LABEL_COLUMNS if c in columns), None)
     if label_col is None:
@@ -170,7 +188,7 @@ def build_total_row(totals: dict[str, float], columns: list[str]) -> dict:
         row["Normal"] = totals.get("Normal", 0.0)
     for label, key in PLAN_LABELS:
         if label in row:
-            row[label] = br_currency(totals.get(key, 0.0))
+            row[label] = totals.get(key, 0.0)
     return row
 
 

@@ -1,44 +1,47 @@
 ARQUIVOS PARA SUBSTITUIÇÃO — Simulador de Parcelamentos REFIS 2026
 ================================================================
 
-Este pacote contém as DUAS mudanças feitas neste atendimento:
+Versão atual (v4). Contém TODAS as mudanças deste atendimento:
 
-1) CORREÇÃO — Valor "À vista" não era lido
-   Causa: o parser confundia "A vista" do plano com a palavra
-   "VISTA" do bairro (ex.: JD BELA VISTA).
-   Correção: busca dos planos restrita à seção "Planos de
-   Parcelamentos" + padrão com fronteiras de palavra (\bA vista\b).
+1) CORREÇÃO — Valor "À vista" não era lido (bairro com "VISTA"
+   confundia o parser).
 
-2) NOVIDADE — Linha TOTAL na planilha
-   Após todos os cadastros, a última linha soma o valor de cada
-   opção (Normal, À vista, 8x, 24x, 36x, 48x, 60x) entre todos os
-   imóveis, em negrito e com fundo azul-claro no Excel.
+2) LINHA TOTAL — última linha da planilha somando, por coluna, os
+   valores exibidos (bate exatamente com =SOMA()).
+
+3) CÉLULAS COM O VALOR DA PARCELA — cada coluna de plano mostra o
+   valor da parcela como no PDF (ex.: coluna 8x mostra 1.055,85),
+   em formato numérico, sem texto.
+
+4) SEM OCULTAÇÃO — nenhum plano é mais ocultado, mesmo com parcela
+   abaixo do mínimo (R$ 60,00 padrão, configurável no app).
+
+5) AVISO EM VERMELHO — quando a parcela fica abaixo do mínimo:
+   - no app: célula destacada em vermelho + seção "🔔 avisos";
+   - no Excel: célula vermelha com comentário (passar o mouse) com a
+     explicação e o máximo de parcelas possível mantendo o mínimo.
 
 COMO APLICAR
 ------------
 
-Opção A — GitHub pelo navegador (mais simples)
-  1. No repositório, abra parsers.py -> Edit (lápis) -> apague tudo,
-     cole o conteúdo do parsers.py deste pacote -> Commit changes.
-  2. Repita para app.py e excel_utils.py.
-  3. Add file -> Create new file -> nome: .gitignore -> cole o
-     conteúdo -> Commit.
-  4. Add file -> Create new file -> nome: tests/test_parsers.py ->
-     cole o conteúdo -> Commit.
+Opção A — GitHub pelo navegador (recomendado)
+  1. Add file -> Upload files.
+  2. Arraste parsers.py, app.py e excel_utils.py (substituem os atuais).
+  3. Arraste também o test_parsers.py (de dentro da pasta tests) e o
+     .gitignore, se ainda não existirem no repositório.
+  4. Mensagem: fix: celulas com valor da parcela como no PDF
+  5. Commit changes.
 
-Opção B — Linha de comando (repositório já clonado)
-  Substitua os arquivos na pasta do projeto:
-    parsers.py, app.py, excel_utils.py  (substituir)
-    tests/test_parsers.py               (novo)
-    .gitignore                          (novo)
-  Depois:
+Opção B — Linha de comando (repositório clonado)
+  Substitua parsers.py, app.py, excel_utils.py e, se quiser, os
+  arquivos tests/test_parsers.py e .gitignore. Depois:
     git add -A
-    git commit -m "fix: valor A vista + linha TOTAL na planilha"
+    git commit -m "fix: celulas com valor da parcela como no PDF"
     git push origin main
 
-TESTES (opcional, recomendado)
+TESTES (opcional)
   pip install pytest
-  python -m pytest tests/ -q      # deve mostrar: 6 passed
+  python -m pytest tests/ -q      # deve mostrar: 8 passed
 
 SEGURANÇA
   Não enviar PDFs com dados pessoais ao GitHub. Os testes usam
