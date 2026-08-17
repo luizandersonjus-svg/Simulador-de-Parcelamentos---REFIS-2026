@@ -6,7 +6,8 @@ import streamlit as st
 
 from excel_utils import dataframe_to_xlsx
 from parsers import (
-    apply_installment_columns, build_module2, parse_previsao_pdf,
+    accumulate_plan_totals, apply_installment_columns, build_module2,
+    build_total_row, new_plan_totals, parse_previsao_pdf,
     read_debt_pdf, read_properties_pdf, read_sheet,
 )
 
@@ -34,21 +35,28 @@ if module.startswith("1"):
         st.error("O limite é de 100 PDFs por processamento.")
     elif files and st.button("Processar PDFs", type="primary"):
         rows, errors = [], []
+        totals = new_plan_totals()
         progress = st.progress(0)
         for i, file in enumerate(files):
             try:
                 row = parse_previsao_pdf(io.BytesIO(file.getvalue()), file.name)
+                accumulate_plan_totals(totals, row)
                 rows.append(apply_installment_columns(row, minimum))
             except Exception as exc:
                 errors.append({"Arquivo": file.name, "Erro": str(exc)})
             progress.progress((i + 1) / len(files))
         st.session_state["module1_result"] = pd.DataFrame(rows)
         st.session_state["module1_errors"] = errors
+        st.session_state["module1_totals"] = totals
 
     if "module1_result" in st.session_state:
         df = st.session_state["module1_result"]
         visible = [c for c in selected if c in df.columns]
         result = df[visible] if visible else df.iloc[:, 0:0]
+        if visible and not df.empty and "module1_totals" in st.session_state:
+            total_row = build_total_row(st.session_state["module1_totals"], list(result.columns))
+            result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
+            st.caption("Linha TOTAL: soma o valor de cada plano entre todos os cadastros processados.")
         st.subheader("Prévia")
         st.dataframe(result, use_container_width=True, hide_index=True)
         if st.session_state.get("module1_errors"):

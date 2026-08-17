@@ -24,4 +24,8 @@ def dataframe_to_xlsx(df: pd.DataFrame, sheet_name: str = "Resultado") -> bytes:
             idx = list(df.columns).index("Normal") + 1
             for row in range(2, ws.max_row + 1):
                 ws.cell(row, idx).number_format = 'R$ #,##0.00'
+        if ws.max_row > 1 and str(ws.cell(row=ws.max_row, column=1).value or "").strip().upper() == "TOTAL":
+            for cell in ws[ws.max_row]:
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill("solid", fgColor="D9E2F3")
     return buffer.getvalue()

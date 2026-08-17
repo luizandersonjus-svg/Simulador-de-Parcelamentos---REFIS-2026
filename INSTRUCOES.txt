@@ -1,0 +1,45 @@
+ARQUIVOS PARA SUBSTITUIÇÃO — Simulador de Parcelamentos REFIS 2026
+================================================================
+
+Este pacote contém as DUAS mudanças feitas neste atendimento:
+
+1) CORREÇÃO — Valor "À vista" não era lido
+   Causa: o parser confundia "A vista" do plano com a palavra
+   "VISTA" do bairro (ex.: JD BELA VISTA).
+   Correção: busca dos planos restrita à seção "Planos de
+   Parcelamentos" + padrão com fronteiras de palavra (\bA vista\b).
+
+2) NOVIDADE — Linha TOTAL na planilha
+   Após todos os cadastros, a última linha soma o valor de cada
+   opção (Normal, À vista, 8x, 24x, 36x, 48x, 60x) entre todos os
+   imóveis, em negrito e com fundo azul-claro no Excel.
+
+COMO APLICAR
+------------
+
+Opção A — GitHub pelo navegador (mais simples)
+  1. No repositório, abra parsers.py -> Edit (lápis) -> apague tudo,
+     cole o conteúdo do parsers.py deste pacote -> Commit changes.
+  2. Repita para app.py e excel_utils.py.
+  3. Add file -> Create new file -> nome: .gitignore -> cole o
+     conteúdo -> Commit.
+  4. Add file -> Create new file -> nome: tests/test_parsers.py ->
+     cole o conteúdo -> Commit.
+
+Opção B — Linha de comando (repositório já clonado)
+  Substitua os arquivos na pasta do projeto:
+    parsers.py, app.py, excel_utils.py  (substituir)
+    tests/test_parsers.py               (novo)
+    .gitignore                          (novo)
+  Depois:
+    git add -A
+    git commit -m "fix: valor A vista + linha TOTAL na planilha"
+    git push origin main
+
+TESTES (opcional, recomendado)
+  pip install pytest
+  python -m pytest tests/ -q      # deve mostrar: 6 passed
+
+SEGURANÇA
+  Não enviar PDFs com dados pessoais ao GitHub. Os testes usam
+  apenas dados fictícios.

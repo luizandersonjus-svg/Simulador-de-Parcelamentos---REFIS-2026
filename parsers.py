@@ -12,6 +12,14 @@ from pypdf import PdfReader
 
 MONEY_RE = re.compile(r"\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}")
 
+PLAN_LABELS = [
+    ("À vista", "avista"), ("8x - 90%", "8x"), ("24x - 70%", "24x"),
+    ("36x - 60%", "36x"), ("48x - 50%", "48x"), ("60x - 40%", "60x"),
+]
+
+CADASTRAL_LABEL_COLUMNS = ["IdFisico", "Compromissário / Responsável", "Crc", "Proprietário",
+                           "Crc Proprietário", "Local do imóvel", "Bairro/Loteamento", "Q", "L"]
+
 
 def normalize(value: object) -> str:
     text = unicodedata.normalize("NFKD", str(value or ""))
@@ -31,6 +39,10 @@ def br_money(value: object) -> float:
     return float(text)
 
 
+def br_currency(value: float) -> str:
+    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def read_pdf_text(file: BinaryIO) -> str:
     file.seek(0)
     reader = PdfReader(file)
@@ -45,7 +57,7 @@ def _field(text: str, pattern: str, default: str = "") -> str:
 def _plan_line(text: str, kind: str) -> tuple[float | None, int | None, float | None]:
     tests = {
         "normal": r"^.*sem desconto.*$",
-        "avista": r"^.*A vista.*$",
+        "avista": r"^.*\bA\s+vista\b.*$",
         "8x": r"^.*\b8x\s*-\s*90%.*$",
         "24x": r"^.*\b24x\s*-\s*70%.*$",
         "36x": r"^.*\b36x\s*-\s*60%.*$",
@@ -80,14 +92,16 @@ def parse_previsao_pdf(file: BinaryIO, filename: str = "") -> dict:
     if ql:
         neighborhood, quadra, lote = (" ".join(g.split()) for g in ql.groups())
 
-    debt_part = text.split("Planos de Parcelamentos", 1)[0]
+    parts = text.split("Planos de Parcelamentos", 1)
+    debt_part = parts[0]
+    plans_text = parts[1] if len(parts) > 1 else text
     years = [int(y) for y in re.findall(r"^(?:CUSTAS|IPTU(?:/TSU)?|IPTU\s*/\s*CIP|CM\s+\S.*?)\s+(\d{4})\b", debt_part, re.I | re.M)]
     exercise = f"{min(years)} a {max(years)}" if years else ""
 
-    normal_total, _, _ = _plan_line(text, "normal")
+    normal_total, _, _ = _plan_line(plans_text, "normal")
     plans = {}
     for key in ("avista", "8x", "24x", "36x", "48x", "60x"):
-        total, count, installment = _plan_line(text, key)
+        total, count, installment = _plan_line(plans_text, key)
         plans[key] = {"total": total, "count": count, "installment": installment}
 
     return {
@@ -108,12 +122,8 @@ def parse_previsao_pdf(file: BinaryIO, filename: str = "") -> dict:
 
 
 def apply_installment_columns(row: dict, minimum: float = 60.0) -> dict:
-    labels = [
-        ("À vista", "avista"), ("8x - 90%", "8x"), ("24x - 70%", "24x"),
-        ("36x - 60%", "36x"), ("48x - 50%", "48x"), ("60x - 40%", "60x"),
-    ]
     blocked = False
-    for label, key in labels:
+    for label, key in PLAN_LABELS:
         plan = row["_plans"].get(key, {})
         count, value = plan.get("count"), plan.get("installment")
         if blocked or value is None:
@@ -122,8 +132,45 @@ def apply_installment_columns(row: dict, minimum: float = 60.0) -> dict:
             blocked = True
             row[label] = ""
         else:
-            row[label] = f"{count}x de R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            row[label] = f"{count}x de " + br_currency(value)
     row.pop("_plans", None)
+    return row
+
+
+def new_plan_totals() -> dict[str, float]:
+    """Acumulador zerado com Normal e todos os planos."""
+    return {"Normal": 0.0, **{key: 0.0 for _, key in PLAN_LABELS}}
+
+
+def accumulate_plan_totals(totals: dict[str, float], row: dict) -> None:
+    """Soma os totais de cada plano de uma linha recém-processada ao acumulado geral."""
+    if isinstance(row.get("Normal"), (int, float)):
+        totals["Normal"] += float(row["Normal"])
+    for _, key in PLAN_LABELS:
+        plan = row.get("_plans", {}).get(key) or {}
+        value = plan.get("total")
+        if isinstance(value, (int, float)):
+            totals[key] += float(value)
+
+
+def build_total_row(totals: dict[str, float], columns: list[str]) -> dict:
+    """Última linha da exportação: soma de cada plano entre todos os cadastros.
+
+    O rótulo 'TOTAL' fica na primeira coluna cadastral visível (IdFisico,
+    responsável etc.); os planos visíveis recebem o valor total em R$.
+    """
+    plan_columns = {label for label, _ in PLAN_LABELS} | {"Normal"}
+    label_col = next((c for c in CADASTRAL_LABEL_COLUMNS if c in columns), None)
+    if label_col is None:
+        label_col = next((c for c in columns if c not in plan_columns), None)
+    row = {c: "" for c in columns}
+    if label_col:
+        row[label_col] = "TOTAL"
+    if "Normal" in row:
+        row["Normal"] = totals.get("Normal", 0.0)
+    for label, key in PLAN_LABELS:
+        if label in row:
+            row[label] = br_currency(totals.get(key, 0.0))
     return row
 
 
