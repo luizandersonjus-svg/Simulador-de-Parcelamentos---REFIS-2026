@@ -130,4 +130,7 @@ else:
         st.dataframe(result, use_container_width=True, hide_index=True)
         st.download_button("⬇️ Baixar Excel", dataframe_to_xlsx(result, "Resultado"),
                            "cruzamento_debitos_imoveis.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        st.info("As colunas de REFIS mostram o valor da parcela com o desconto legal do plano aplicado.")
+        st.info("As colunas de REFIS mostram o valor da parcela com o desconto legal do plano aplicado. "
+                "A multa de mora recebe o desconto do plano em todas as opções; os juros são descontados "
+                "apenas até o plano de 24x e somente sobre o excedente (SELIC − INPC) da competência do "
+                "vencimento de cada parcela.")

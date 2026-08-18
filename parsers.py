@@ -22,15 +22,122 @@ CADASTRAL_LABEL_COLUMNS = ["IdFisico", "Compromissário / Responsável", "Crc", 
                            "Crc Proprietário", "Local do imóvel", "Bairro/Loteamento", "Q", "L"]
 
 # Planos do REFIS 2026 (LC 1.230/2026, art. 2º): rótulo da coluna, percentual de
-# desconto e quantidade de parcelas.
+# desconto, quantidade de parcelas e se o desconto incide sobre os juros de mora.
+# Pela planilha oficial, o desconto de juros (sobre o excedente SELIC − INPC) só
+# vale até o plano de 24x; a partir de 36x desconta-se apenas a multa.
 REFIS_PLANS = [
-    ("À vista", 1.00, 1),
-    ("8x - 90%", 0.90, 8),
-    ("24x - 70%", 0.70, 24),
-    ("36x - 60%", 0.60, 36),
-    ("48x - 50%", 0.50, 48),
-    ("60x - 40%", 0.40, 60),
+    ("À vista", 1.00, 1, True),
+    ("8x - 90%", 0.90, 8, True),
+    ("24x - 70%", 0.70, 24, True),
+    ("36x - 60%", 0.60, 36, False),
+    ("48x - 50%", 0.50, 48, False),
+    ("60x - 40%", 0.40, 60, False),
 ]
+
+# SELIC acumulada e INPC acumulado por competência, conforme a planilha oficial
+# "PLanos REFIS 2026 desconto SELIC.xlsx" (Planilha2). A competência referencia o
+# vencimento da parcela: o desconto de juros incide sobre o excedente
+# (SELIC - INPC)/SELIC apurado naquela competência.
+SELIC_INPC = {
+    "2018-01": (0.729100, 0.548100),
+    "2018-02": (0.724400, 0.545300),
+    "2018-03": (0.719100, 0.544300),
+    "2018-04": (0.713900, 0.541000),
+    "2018-05": (0.708700, 0.534400),
+    "2018-06": (0.703500, 0.512800),
+    "2018-07": (0.698100, 0.509000),
+    "2018-08": (0.692400, 0.509000),
+    "2018-09": (0.687700, 0.504500),
+    "2018-10": (0.682300, 0.498500),
+    "2018-11": (0.677400, 0.502300),
+    "2018-12": (0.672500, 0.500200),
+    "2019-01": (0.667100, 0.494800),
+    "2019-02": (0.662200, 0.486800),
+    "2019-03": (0.657500, 0.475400),
+    "2019-04": (0.652300, 0.466600),
+    "2019-05": (0.646900, 0.464400),
+    "2019-06": (0.642200, 0.464300),
+    "2019-07": (0.636500, 0.462800),
+    "2019-08": (0.631500, 0.461000),
+    "2019-09": (0.626900, 0.461800),
+    "2019-10": (0.622100, 0.461200),
+    "2019-11": (0.618300, 0.453300),
+    "2019-12": (0.614600, 0.435800),
+    "2020-01": (0.610800, 0.433100),
+    "2020-02": (0.607900, 0.430700),
+    "2020-03": (0.604500, 0.428100),
+    "2020-04": (0.601700, 0.431400),
+    "2020-05": (0.599300, 0.435000),
+    "2020-06": (0.597200, 0.430700),
+    "2020-07": (0.595300, 0.424400),
+    "2020-08": (0.593700, 0.419300),
+    "2020-09": (0.592100, 0.407100),
+    "2020-10": (0.590500, 0.394600),
+    "2020-11": (0.589000, 0.381500),
+    "2020-12": (0.587400, 0.361600),
+    "2021-01": (0.585900, 0.358000),
+    "2021-02": (0.584600, 0.346900),
+    "2021-03": (0.582600, 0.335400),
+    "2021-04": (0.580500, 0.330400),
+    "2021-05": (0.577800, 0.317700),
+    "2021-06": (0.574700, 0.309900),
+    "2021-07": (0.571100, 0.296700),
+    "2021-08": (0.566800, 0.285300),
+    "2021-09": (0.562400, 0.270100),
+    "2021-10": (0.557500, 0.255500),
+    "2021-11": (0.551600, 0.245100),
+    "2021-12": (0.543900, 0.236100),
+    "2022-01": (0.536600, 0.227800),
+    "2022-02": (0.529000, 0.215700),
+    "2022-03": (0.519700, 0.195200),
+    "2022-04": (0.511400, 0.182900),
+    "2022-05": (0.501100, 0.177600),
+    "2022-06": (0.490900, 0.170400),
+    "2022-07": (0.480600, 0.177400),
+    "2022-08": (0.469000, 0.181100),
+    "2022-09": (0.458300, 0.184900),
+    "2022-10": (0.448100, 0.179400),
+    "2022-11": (0.437900, 0.174900),
+    "2022-12": (0.426700, 0.166800),
+    "2023-01": (0.415500, 0.161500),
+    "2023-02": (0.406300, 0.152600),
+    "2023-03": (0.394600, 0.145300),
+    "2023-04": (0.385400, 0.139300),
+    "2023-05": (0.374200, 0.135200),
+    "2023-06": (0.363500, 0.136300),
+    "2023-07": (0.352800, 0.137300),
+    "2023-08": (0.341500, 0.135100),
+    "2023-09": (0.331800, 0.133800),
+    "2023-10": (0.321800, 0.132400),
+    "2023-11": (0.312600, 0.131300),
+    "2023-12": (0.303700, 0.125100),
+    "2024-01": (0.294000, 0.118800),
+    "2024-02": (0.286000, 0.109800),
+    "2024-03": (0.277700, 0.107700),
+    "2024-04": (0.268800, 0.103600),
+    "2024-05": (0.260500, 0.098500),
+    "2024-06": (0.252600, 0.095800),
+    "2024-07": (0.243500, 0.092900),
+    "2024-08": (0.234800, 0.094500),
+    "2024-09": (0.226400, 0.089200),
+    "2024-10": (0.217100, 0.082600),
+    "2024-11": (0.209200, 0.079100),
+    "2024-12": (0.199900, 0.073900),
+    "2025-01": (0.189800, 0.073900),
+    "2025-02": (0.180000, 0.058300),
+    "2025-03": (0.170400, 0.052900),
+    "2025-04": (0.159800, 0.047900),
+    "2025-05": (0.148400, 0.044200),
+    "2025-06": (0.137400, 0.041800),
+    "2025-07": (0.124600, 0.039600),
+    "2025-08": (0.113000, 0.041800),
+    "2025-09": (0.100800, 0.036400),
+    "2025-10": (0.088000, 0.036100),
+    "2025-11": (0.077500, 0.035800),
+    "2025-12": (0.065300, 0.033600),
+}
+
+_SELIC_INPC_DEFAULT_MES = max(SELIC_INPC)
 
 
 def normalize(value: object) -> str:
@@ -203,16 +310,35 @@ def build_total_row(totals: dict[str, float], columns: list[str]) -> dict:
     return row
 
 
-def _parcela_descontada(total: float, juros: float, multa: float, percentual: float) -> float:
-    """Valor a pagar de um débito após o desconto do plano.
+def _vencimento_to_mes(value: object) -> str:
+    """Converte um vencimento em 'YYYY-MM' para consultar a tabela SELIC/INPC."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    if isinstance(value, (datetime, date)):
+        return value.strftime("%Y-%m")
+    try:
+        return pd.to_datetime(value, dayfirst=True, errors="raise").strftime("%Y-%m")
+    except (ValueError, TypeError):
+        return ""
 
-    O desconto incide sobre a somatória de juros de mora + multa na proporção do
-    plano (À vista 100%, 8x-90%, ...). Original, correção monetária e honorários
-    nunca entram no desconto, pois já compõem o Total como parcelas não
-    descontáveis — o Total é reduzido apenas pela parcela descontada.
+
+def _lookup_selic_inpc(mes: str) -> tuple[float, float]:
+    return SELIC_INPC.get(mes, (0.0, 0.0))
+
+
+def _parcela_descontada(total: float, juros: float, multa: float, selic: float,
+                        inpc: float, percentual: float, desconta_juros: bool) -> float:
+    """Valor a pagar de um débito após o desconto do plano REFIS.
+
+    O desconto incide sobre a multa de mora (percentual do plano) e, apenas nos
+    planos de até 24x, sobre os juros acima da inflação: a parcela descontada dos
+    juros é limitada ao excedente (SELIC - INPC)/SELIC apurado na competência do
+    vencimento. Original, correção monetária e honorários nunca entram no
+    desconto. Para planos de 36x em diante os juros entram pelo valor cheio.
     """
-    desconto = percentual * (juros + multa)
-    return max(0.0, total - desconto)
+    desconto_juros = percentual * juros * max(0.0, (selic - inpc) / selic) if desconta_juros and selic > 0 else 0.0
+    desconto_multa = percentual * multa
+    return max(0.0, total - desconto_juros - desconto_multa)
 
 
 def read_debt_pdf(file: BinaryIO) -> pd.DataFrame:
@@ -361,9 +487,10 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
 
     # Agregação por imóvel: "Normal" soma os totais e, para cada plano, soma-se o
     # valor já descontado. O desconto é calculado DÉBITO a DÉBITO, pois cada um tem
-    # os seus próprios juros/multa. Débitos do ano corrente (normal) não recebem
+    # os seus próprios juros/multa e competência de vencimento (que define a SELIC
+    # e o INPC usados no excedente). Débitos do ano corrente (normal) não recebem
     # desconto, entrando pelo valor cheio.
-    plan_labels = [label for label, _, _ in REFIS_PLANS]
+    plan_labels = [label for label, _, _, _ in REFIS_PLANS]
     agg: dict[str, dict] = {}
     for _, r in old.iterrows():
         key = r["Origem_key"]
@@ -381,10 +508,12 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
         if exercicio < today.year:
             juros = float(r["Juros_num"])
             multa = float(r["Multa_num"])
-            for label, pct, _ in REFIS_PLANS:
-                item["plans"][label] += _parcela_descontada(total, juros, multa, pct)
+            mes = _vencimento_to_mes(r.get("Vencimento")) or _SELIC_INPC_DEFAULT_MES
+            selic, inpc = _lookup_selic_inpc(mes)
+            for label, pct, _, desconta_juros in REFIS_PLANS:
+                item["plans"][label] += _parcela_descontada(total, juros, multa, selic, inpc, pct, desconta_juros)
         else:
-            for label, _, _ in REFIS_PLANS:
+            for label, _, _, _ in REFIS_PLANS:
                 item["plans"][label] += total
 
     grouped = pd.DataFrame([
@@ -418,7 +547,7 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
     merged["Normal"] = merged["Normal"].fillna(0.0)
 
     # Colunas de REFIS: valor da parcela já com desconto (total descontado ÷ nº de parcelas).
-    for label, _, n in REFIS_PLANS:
+    for label, _, n, _ in REFIS_PLANS:
         merged[label] = (merged[label].fillna(0.0) / n).round(2)
 
     output_cols = ["IdFisico", "Compromissário / Responsável", "Crc", "Proprietário", "Crc Proprietário",
