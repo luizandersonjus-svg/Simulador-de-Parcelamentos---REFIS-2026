@@ -17,7 +17,7 @@ st.caption("Processamento temporário: os arquivos não são armazenados em banc
 
 MODULE1_COLUMNS = ["IdFisico", "Compromissário / Responsável", "Crc", "Proprietário", "Crc Proprietário",
                    "Local do imóvel", "Bairro/Loteamento", "Q", "L", "Exercício", "Normal", "À vista",
-                   "8x - 90%", "24x - 70%", "36x - 60%", "48x - 50%", "60x - 40%"]
+                   "8x - 90%", "24x - 70%", "36x - 60%", "48x - 50%", "60x - 40%", "96x - 40%"]
 
 module = st.sidebar.radio("Escolha o módulo", ["1 — Previsão de parcelamento", "2 — Cruzamento de débitos e imóveis"])
 st.sidebar.info("Antes de exportar, confira a prévia e eventuais avisos.")

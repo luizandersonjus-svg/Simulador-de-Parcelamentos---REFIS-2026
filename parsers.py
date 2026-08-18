@@ -16,23 +16,33 @@ MONEY_RE = re.compile(r"\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}")
 PLAN_LABELS = [
     ("À vista", "avista"), ("8x - 90%", "8x"), ("24x - 70%", "24x"),
     ("36x - 60%", "36x"), ("48x - 50%", "48x"), ("60x - 40%", "60x"),
+    ("96x - 40%", "96x"),
 ]
 
 CADASTRAL_LABEL_COLUMNS = ["IdFisico", "Compromissário / Responsável", "Crc", "Proprietário",
                            "Crc Proprietário", "Local do imóvel", "Bairro/Loteamento", "Q", "L"]
 
-# Planos do REFIS 2026 (LC 1.230/2026, art. 2º): rótulo da coluna, percentual de
-# desconto, quantidade de parcelas e se o desconto incide sobre os juros de mora.
+# Planos do REFIS 2026 (LC 1.230/2026, art. 2º): rótulo da coluna, percentual
+# de desconto, quantidade nominal de parcelas, se o desconto incide sobre os
+# juros de mora e se o plano respeita o valor mínimo de parcela (R$ 60,00).
 # Pela planilha oficial, o desconto de juros (sobre o excedente SELIC − INPC) só
-# vale até o plano de 24x; a partir de 36x desconta-se apenas a multa.
+# vale até o plano de 24x; a partir de 36x desconta-se apenas a multa. O plano
+# de 96x (CadÚnico) não aplica o mínimo legal de parcela.
 REFIS_PLANS = [
-    ("À vista", 1.00, 1, True),
-    ("8x - 90%", 0.90, 8, True),
-    ("24x - 70%", 0.70, 24, True),
-    ("36x - 60%", 0.60, 36, False),
-    ("48x - 50%", 0.50, 48, False),
-    ("60x - 40%", 0.40, 60, False),
+    ("À vista", 1.00, 1, True, True),
+    ("8x - 90%", 0.90, 8, True, True),
+    ("24x - 70%", 0.70, 24, True, True),
+    ("36x - 60%", 0.60, 36, False, True),
+    ("48x - 50%", 0.50, 48, False, True),
+    ("60x - 40%", 0.40, 60, False, True),
+    ("96x - 40%", 0.40, 96, False, False),
 ]
+
+# Valor mínimo legal da parcela (mantém o total ÷ nº de parcelas ≥ R$ 60,00).
+MIN_PARCELA_REFIS = 60.0
+
+# Plano de 96x (CadÚnico) dispensado do valor mínimo de parcela.
+PLANS_SEM_MINIMO = {"96x"}
 
 # SELIC acumulada e INPC acumulado por competência, conforme a planilha oficial
 # "PLanos REFIS 2026 desconto SELIC.xlsx" (Planilha2). A competência referencia o
@@ -182,6 +192,7 @@ def _plan_line(text: str, kind: str) -> tuple[float | None, int | None, float | 
         "36x": r"^.*\b36x\s*-\s*60%.*$",
         "48x": r"^.*\b48x\s*-\s*50%.*$",
         "60x": r"^.*\b60x\s*-\s*40%.*$",
+        "96x": r"^.*\b96x\s*-\s*40%.*Cad.*(?:Unico|Único).*$",
     }
     match = re.search(tests[kind], text, re.I | re.M)
     if not match:
@@ -219,7 +230,7 @@ def parse_previsao_pdf(file: BinaryIO, filename: str = "") -> dict:
 
     normal_total, _, _ = _plan_line(plans_text, "normal")
     plans = {}
-    for key in ("avista", "8x", "24x", "36x", "48x", "60x"):
+    for key in ("avista", "8x", "24x", "36x", "48x", "60x", "96x"):
         total, count, installment = _plan_line(plans_text, key)
         plans[key] = {"total": total, "count": count, "installment": installment}
 
@@ -254,7 +265,7 @@ def apply_installment_columns(row: dict, minimum: float = 60.0) -> dict:
         value, total = plan.get("installment"), plan.get("total")
         if isinstance(value, (int, float)):
             row[label] = float(value)
-            if (key != "avista" and minimum > 0
+            if (key not in ("avista", "96x") and minimum > 0
                     and value < minimum and isinstance(total, (int, float))):
                 max_n = math.floor(float(total) / minimum)
                 if max_n >= 1:
@@ -490,7 +501,7 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
     # os seus próprios juros/multa e competência de vencimento (que define a SELIC
     # e o INPC usados no excedente). Débitos do ano corrente (normal) não recebem
     # desconto, entrando pelo valor cheio.
-    plan_labels = [label for label, _, _, _ in REFIS_PLANS]
+    plan_labels = [label for label, _, _, _, _ in REFIS_PLANS]
     agg: dict[str, dict] = {}
     for _, r in old.iterrows():
         key = r["Origem_key"]
@@ -510,10 +521,10 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
             multa = float(r["Multa_num"])
             mes = _vencimento_to_mes(r.get("Vencimento")) or _SELIC_INPC_DEFAULT_MES
             selic, inpc = _lookup_selic_inpc(mes)
-            for label, pct, _, desconta_juros in REFIS_PLANS:
+            for label, pct, _, desconta_juros, _ in REFIS_PLANS:
                 item["plans"][label] += _parcela_descontada(total, juros, multa, selic, inpc, pct, desconta_juros)
         else:
-            for label, _, _, _ in REFIS_PLANS:
+            for label, _, _, _, _ in REFIS_PLANS:
                 item["plans"][label] += total
 
     grouped = pd.DataFrame([
@@ -546,11 +557,24 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
     merged[year_col] = counts.map(lambda n: "" if n == 0 else ("1 parcela vencida" if n == 1 else f"{n} parcelas vencidas"))
     merged["Normal"] = merged["Normal"].fillna(0.0)
 
-    # Colunas de REFIS: valor da parcela já com desconto (total descontado ÷ nº de parcelas).
-    for label, _, n, _ in REFIS_PLANS:
-        merged[label] = (merged[label].fillna(0.0) / n).round(2)
+    # Colunas de REFIS: valor da parcela já com desconto (total descontado ÷ nº de
+    # parcelas). Quando o valor nominal fica abaixo do mínimo legal (R$ 60,00), a
+    # quantidade de parcelas é reduzida para manter a parcela no mínimo — como o
+    # sistema oficial — exceto no plano de 96x (CadÚnico), que não aplica o mínimo.
+    for label, _, n, _, aplica_min in REFIS_PLANS:
+        total_plan = merged[label].fillna(0.0)
+        if n <= 0:
+            merged[label] = 0.0
+            continue
+        nominal = total_plan / n
+        if aplica_min:
+            below = (total_plan > 0) & (nominal < MIN_PARCELA_REFIS)
+            n_eff = (total_plan / MIN_PARCELA_REFIS).astype(int).clip(lower=1)
+            merged[label] = (total_plan / n_eff.where(below, n)).round(2)
+        else:
+            merged[label] = nominal.round(2)
 
     output_cols = ["IdFisico", "Compromissário / Responsável", "Crc", "Proprietário", "Crc Proprietário",
                    "Local do imóvel", "Bairro/Loteamento", "Q", "L", "Exercício", year_col, "Normal",
-                   "À vista", "8x - 90%", "24x - 70%", "36x - 60%", "48x - 50%", "60x - 40%"]
+                   "À vista", "8x - 90%", "24x - 70%", "36x - 60%", "48x - 50%", "60x - 40%", "96x - 40%"]
     return merged[output_cols], warnings
