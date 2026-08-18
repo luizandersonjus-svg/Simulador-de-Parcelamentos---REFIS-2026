@@ -21,6 +21,17 @@ PLAN_LABELS = [
 CADASTRAL_LABEL_COLUMNS = ["IdFisico", "Compromissário / Responsável", "Crc", "Proprietário",
                            "Crc Proprietário", "Local do imóvel", "Bairro/Loteamento", "Q", "L"]
 
+# Planos do REFIS 2026 (LC 1.230/2026, art. 2º): rótulo da coluna, percentual de
+# desconto e quantidade de parcelas.
+REFIS_PLANS = [
+    ("À vista", 1.00, 1),
+    ("8x - 90%", 0.90, 8),
+    ("24x - 70%", 0.70, 24),
+    ("36x - 60%", 0.60, 36),
+    ("48x - 50%", 0.50, 48),
+    ("60x - 40%", 0.40, 60),
+]
+
 
 def normalize(value: object) -> str:
     text = unicodedata.normalize("NFKD", str(value or ""))
@@ -192,6 +203,18 @@ def build_total_row(totals: dict[str, float], columns: list[str]) -> dict:
     return row
 
 
+def _parcela_descontada(total: float, juros: float, multa: float, percentual: float) -> float:
+    """Valor a pagar de um débito após o desconto do plano.
+
+    O desconto incide sobre a somatória de juros de mora + multa na proporção do
+    plano (À vista 100%, 8x-90%, ...). Original, correção monetária e honorários
+    nunca entram no desconto, pois já compõem o Total como parcelas não
+    descontáveis — o Total é reduzido apenas pela parcela descontada.
+    """
+    desconto = percentual * (juros + multa)
+    return max(0.0, total - desconto)
+
+
 def read_debt_pdf(file: BinaryIO) -> pd.DataFrame:
     file.seek(0)
     rows = []
@@ -204,6 +227,11 @@ def read_debt_pdf(file: BinaryIO) -> pd.DataFrame:
                         rows.append({
                             "Exercício": values[1], "Situação": values[3],
                             "Vencimento": values[4], "Total": values[5], "Origem": values[7],
+                            "Original": values[8] if len(values) > 8 else "",
+                            "Correção": values[9] if len(values) > 9 else "",
+                            "Juros": values[10] if len(values) > 10 else "",
+                            "Multa": values[11] if len(values) > 11 else "",
+                            "Honorários": values[12] if len(values) > 12 else "",
                         })
     if not rows:
         raise ValueError("Não foi possível localizar a tabela de débitos no PDF.")
@@ -221,14 +249,33 @@ def read_sheet(file: BinaryIO, filename: str) -> pd.DataFrame:
             except UnicodeDecodeError:
                 continue
         raise ValueError("Não foi possível identificar a codificação do CSV.")
-    return pd.read_excel(file)
+    # As planilhas exportadas trazem linhas de título antes do cabeçalho real.
+    # Localiza a linha de cabeçalho procurando por nomes de colunas conhecidos.
+    df = pd.read_excel(file, header=None)
+    header_idx = 0
+    for i in range(len(df)):
+        non_empty = [v for v in df.iloc[i].tolist()
+                     if v is not None and not (isinstance(v, float) and pd.isna(v))
+                     and str(v).strip() != ""]
+        if len(non_empty) >= 3:
+            header_idx = i
+            break
+    df.columns = [str(c).strip() for c in df.iloc[header_idx].tolist()]
+    df = df.iloc[header_idx + 1:].reset_index(drop=True)
+    df = df.loc[:, [c for c in df.columns if c and str(c) not in ("nan", "None") and not str(c).startswith("Unnamed")]]
+    return df.dropna(how="all").reset_index(drop=True)
 
 
 def canonical_debts(df: pd.DataFrame) -> pd.DataFrame:
     aliases = {
         "Exercício": ["exercicio", "ano"], "Origem": ["origem", "idfisico", "fisico"],
-        "Total": ["subtotal", "total", "valor"], "Situação": ["situacao", "situacao parcela"],
+        "Total": ["total", "subtotal", "valor"], "Situação": ["situacao", "situacao parcela"],
         "Vencimento": ["vencimento", "data vencimento"],
+        "Original": ["original", "principal"],
+        "Juros": ["juros", "juros de mora"],
+        "Multa": ["multa", "multa de mora"],
+        "Correção": ["correcao", "correcao monetaria"],
+        "Honorários": ["honorarios", "honorarios advocaticios"],
     }
     normalized = {normalize(c): c for c in df.columns}
     rename = {}
@@ -298,16 +345,59 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
     warnings = []
     debts["Origem_key"] = debts["Origem"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
     debts["Exercício_num"] = pd.to_numeric(debts["Exercício"], errors="coerce")
-    debts["Total_num"] = debts["Total"].map(br_money)
+
+    # Colunas monetárias: Total é obrigatória; as demais são opcionais e, quando
+    # ausentes, valem 0 (sem juros/multa a descontar).
+    for col in ("Total", "Juros", "Multa", "Original", "Correção", "Honorários"):
+        debts[col + "_num"] = debts[col].map(br_money) if col in debts else 0.0
+
     if "Situação" in debts:
         is_normal = debts["Situação"].map(normalize).eq("normal")
     else:
         is_normal = debts["Exercício_num"].eq(today.year)
         warnings.append("A planilha de débitos não contém Situação; linhas do ano atual foram tratadas como normais.")
+
     old = debts[~is_normal & debts["Exercício_num"].notna()]
-    grouped = old.groupby("Origem_key").agg(
-        AnoInicial=("Exercício_num", "min"), AnoFinal=("Exercício_num", "max"), Normal=("Total_num", "sum")
-    )
+
+    # Agregação por imóvel: "Normal" soma os totais e, para cada plano, soma-se o
+    # valor já descontado. O desconto é calculado DÉBITO a DÉBITO, pois cada um tem
+    # os seus próprios juros/multa. Débitos do ano corrente (normal) não recebem
+    # desconto, entrando pelo valor cheio.
+    plan_labels = [label for label, _, _ in REFIS_PLANS]
+    agg: dict[str, dict] = {}
+    for _, r in old.iterrows():
+        key = r["Origem_key"]
+        if key not in agg:
+            agg[key] = {"AnoInicial": None, "AnoFinal": None, "Normal": 0.0,
+                        "plans": {label: 0.0 for label in plan_labels}}
+        item = agg[key]
+        exercicio = int(r["Exercício_num"])
+        if item["AnoInicial"] is None or exercicio < item["AnoInicial"]:
+            item["AnoInicial"] = exercicio
+        if item["AnoFinal"] is None or exercicio > item["AnoFinal"]:
+            item["AnoFinal"] = exercicio
+        total = float(r["Total_num"])
+        item["Normal"] += total
+        if exercicio < today.year:
+            juros = float(r["Juros_num"])
+            multa = float(r["Multa_num"])
+            for label, pct, _ in REFIS_PLANS:
+                item["plans"][label] += _parcela_descontada(total, juros, multa, pct)
+        else:
+            for label, _, _ in REFIS_PLANS:
+                item["plans"][label] += total
+
+    grouped = pd.DataFrame([
+        {
+            "Origem_key": key,
+            "AnoInicial": v["AnoInicial"],
+            "AnoFinal": v["AnoFinal"],
+            "Normal": v["Normal"],
+            **{label: v["plans"][label] for label in plan_labels},
+        }
+        for key, v in agg.items()
+    ], columns=["Origem_key", "AnoInicial", "AnoFinal", "Normal"] + plan_labels)
+
     overdue = pd.Series(dtype="int64")
     if "Vencimento" in debts:
         due = pd.to_datetime(debts["Vencimento"], dayfirst=True, errors="coerce")
@@ -318,7 +408,7 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
 
     props = properties.copy()
     props["Origem_key"] = props["IdFisico"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-    merged = props.merge(grouped, left_on="Origem_key", right_index=True, how="left")
+    merged = props.merge(grouped, on="Origem_key", how="left")
     merged["Exercício"] = merged.apply(
         lambda r: f"{int(r.AnoInicial)} a {int(r.AnoFinal)}" if pd.notna(r.AnoInicial) else "", axis=1
     )
@@ -326,8 +416,11 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
     year_col = str(today.year)
     merged[year_col] = counts.map(lambda n: "" if n == 0 else ("1 parcela vencida" if n == 1 else f"{n} parcelas vencidas"))
     merged["Normal"] = merged["Normal"].fillna(0.0)
-    for col in ["À vista", "8x - 90%", "24x - 70%", "36x - 60%", "48x - 50%", "60x - 40%"]:
-        merged[col] = ""
+
+    # Colunas de REFIS: valor da parcela já com desconto (total descontado ÷ nº de parcelas).
+    for label, _, n in REFIS_PLANS:
+        merged[label] = (merged[label].fillna(0.0) / n).round(2)
+
     output_cols = ["IdFisico", "Compromissário / Responsável", "Crc", "Proprietário", "Crc Proprietário",
                    "Local do imóvel", "Bairro/Loteamento", "Q", "L", "Exercício", year_col, "Normal",
                    "À vista", "8x - 90%", "24x - 70%", "36x - 60%", "48x - 50%", "60x - 40%"]

@@ -130,4 +130,4 @@ else:
         st.dataframe(result, use_container_width=True, hide_index=True)
         st.download_button("⬇️ Baixar Excel", dataframe_to_xlsx(result, "Resultado"),
                            "cruzamento_debitos_imoveis.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        st.info("As colunas de REFIS permanecem vazias nesta versão e poderão receber o cálculo legal futuramente.")
+        st.info("As colunas de REFIS mostram o valor da parcela com o desconto legal do plano aplicado.")
