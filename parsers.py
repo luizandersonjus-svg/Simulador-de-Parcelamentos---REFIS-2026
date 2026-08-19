@@ -403,6 +403,30 @@ def read_sheet(file: BinaryIO, filename: str) -> pd.DataFrame:
     return df.dropna(how="all").reset_index(drop=True)
 
 
+def _pick_column_aliases(df: pd.DataFrame, alias_groups: dict[str, list[str]]) -> dict[str, str]:
+    """Escolhe, para cada alvo, exatamente UMA coluna-fonte, evitando colunas
+    duplicadas quando o arquivo traz nomes repetidos (ex.: 'Imóvel Logradouro' e
+    'Logradouro' na HPS). Prioriza a coluna com o nome literal do alvo; senão, a
+    primeira (mais à esquerda) que casa com qualquer alias."""
+    normalized = {normalize(c): c for c in df.columns}
+    used = set(df.columns)
+    rename: dict[str, str] = {}
+    for target, aliases in alias_groups.items():
+        source = None
+        nt = normalize(target)
+        if nt in normalized:
+            source = normalized[nt]
+        else:
+            for alias in aliases:
+                if alias in normalized:
+                    source = normalized[alias]
+                    break
+        if source is not None and source in used:
+            rename[source] = target
+            used.discard(source)
+    return rename
+
+
 def canonical_debts(df: pd.DataFrame) -> pd.DataFrame:
     aliases = {
         "Exercício": ["exercicio", "ano"], "Origem": ["origem", "idfisico", "fisico"],
@@ -414,13 +438,7 @@ def canonical_debts(df: pd.DataFrame) -> pd.DataFrame:
         "Correção": ["correcao", "correcao monetaria"],
         "Honorários": ["honorarios", "honorarios advocaticios"],
     }
-    normalized = {normalize(c): c for c in df.columns}
-    rename = {}
-    for target, names in aliases.items():
-        for name in names:
-            if name in normalized:
-                rename[normalized[name]] = target
-                break
+    rename = _pick_column_aliases(df, aliases)
     result = df.rename(columns=rename).copy()
     missing = [c for c in ("Exercício", "Origem", "Total") if c not in result]
     if missing:
@@ -454,13 +472,7 @@ def canonical_properties(df: pd.DataFrame) -> pd.DataFrame:
         "Número": ["imovel numero", "numero"], "Q": ["quadra", "q"], "L": ["lote", "l"],
         "Crc": ["crc"], "Crc Proprietário": ["crc proprietario"], "Bairro/Loteamento": ["bairro/loteamento", "bairro", "loteamento"],
     }
-    normalized = {normalize(c): c for c in df.columns}
-    rename = {}
-    for target, aliases in alias_groups.items():
-        for alias in aliases:
-            if alias in normalized:
-                rename[normalized[alias]] = target
-                break
+    rename = _pick_column_aliases(df, alias_groups)
     result = df.rename(columns=rename).copy()
     if "IdFisico" not in result:
         raise ValueError("A coluna Físico/IdFisico não foi encontrada no cadastro de imóveis.")
