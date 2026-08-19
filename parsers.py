@@ -406,25 +406,49 @@ def read_sheet(file: BinaryIO, filename: str) -> pd.DataFrame:
 def _pick_column_aliases(df: pd.DataFrame, alias_groups: dict[str, list[str]]) -> dict[str, str]:
     """Escolhe, para cada alvo, exatamente UMA coluna-fonte, evitando colunas
     duplicadas quando o arquivo traz nomes repetidos (ex.: 'Imóvel Logradouro' e
-    'Logradouro' na HPS). Prioriza a coluna com o nome literal do alvo; senão, a
-    primeira (mais à esquerda) que casa com qualquer alias."""
+    'Logradouro' na HPS). Entre as colunas candidatas, preferem-se as que contêm
+    texto real em vez de códigos numéricos: em alguns exports municipais a coluna
+    'Logradouro'/'Loteamento' guarda o CÓDIGO e o nome fica em 'Imóvel Logradouro'/'Imóvel Loteamento'."""
     normalized = {normalize(c): c for c in df.columns}
-    used = set(df.columns)
+    used: set[str] = set()
     rename: dict[str, str] = {}
     for target, aliases in alias_groups.items():
-        source = None
-        nt = normalize(target)
-        if nt in normalized:
-            source = normalized[nt]
-        else:
-            for alias in aliases:
-                if alias in normalized:
-                    source = normalized[alias]
-                    break
-        if source is not None and source in used:
+        candidates: list[str] = []
+        for alias in aliases:
+            if alias in normalized:
+                col = normalized[alias]
+                if col not in candidates and col not in used:
+                    candidates.append(col)
+        if not candidates:
+            continue
+        source = _best_textual_column(df, candidates)
+        if source is not None:
             rename[source] = target
-            used.discard(source)
+            used.add(source)
+    # Coluna que perdeu a disputa e ainda ocupa o nome-alvo (ex.: a 'Logradouro'
+    # numérica da HPS) é rebatizada para não virar duplicata após o rename.
+    sources_by_target = {t: s for s, t in rename.items()}
+    for col in df.columns:
+        if col in alias_groups and col not in rename and sources_by_target.get(col) != col:
+            rename[col] = f"{col} (código)"
     return rename
+
+
+def _best_textual_column(df: pd.DataFrame, candidates: list[str]) -> str:
+    """Retorna a coluna candidata com maior proporção de valores não vazios que
+    contêm letras (nomes), preferida sobre códigos 100% numéricos. Empates caem
+    para a coluna mais à esquerda."""
+    best, best_score = candidates[0], -1.0
+    for col in candidates:
+        values = [str(v).strip() for v in df[col].dropna().tolist()
+                  if str(v).strip() not in ("", "nan", ".")]
+        if not values:
+            score = 0.0
+        else:
+            score = sum(1 for v in values if any(ch.isalpha() for ch in v)) / len(values)
+        if score > best_score:
+            best, best_score = col, score
+    return best
 
 
 def canonical_debts(df: pd.DataFrame) -> pd.DataFrame:
@@ -470,7 +494,8 @@ def canonical_properties(df: pd.DataFrame) -> pd.DataFrame:
         "Proprietário": ["proprietario"], "Compromissário / Responsável": ["responsavel", "compromissario", "compromissario / responsavel"],
         "Logradouro": ["imovel logradouro", "logradouro", "local do imovel"],
         "Número": ["imovel numero", "numero"], "Q": ["quadra", "q"], "L": ["lote", "l"],
-        "Crc": ["crc"], "Crc Proprietário": ["crc proprietario"], "Bairro/Loteamento": ["bairro/loteamento", "bairro", "loteamento"],
+        "Crc": ["crc"], "Crc Proprietário": ["crc proprietario"],
+        "Bairro/Loteamento": ["imovel loteamento", "loteamento", "imovel bairro", "bairro/loteamento", "bairro"],
     }
     rename = _pick_column_aliases(df, alias_groups)
     result = df.rename(columns=rename).copy()
