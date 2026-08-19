@@ -4,11 +4,12 @@ Usa apenas textos sintéticos, sem dados reais.
 """
 import re
 
+import pandas as pd
 import pytest
 
 from parsers import (
     _plan_line, accumulate_plan_totals, apply_installment_columns,
-    build_total_row, new_plan_totals,
+    build_module2_total_row, build_total_row, new_plan_totals,
 )
 
 PLANS_SECTION = """Planos de Parcelamentos Original Correção Juros Multa Honorários Total Parcelas Vlr Parcela
@@ -145,3 +146,18 @@ def test_rotulo_nao_substitui_coluna_de_plano():
     total_row = build_total_row(totals, columns)
     assert total_row["Exercício"] == "TOTAL"
     assert total_row["À vista"] == 13374.04
+
+
+def test_linha_total_modulo2():
+    """A somatória geral do Módulo 2 soma Normal e cada plano, rotulando a linha."""
+    df = pd.DataFrame([
+        {"IdFisico": "1", "Local do imóvel": "RUA A", "Normal": 100.0, "À vista": 80.0, "8x - 90%": 11.25, "60x - 40%": 2.5},
+        {"IdFisico": "2", "Local do imóvel": "RUA B", "Normal": 50.0, "À vista": 30.5, "8x - 90%": 4.4, "60x - 40%": 1.0},
+    ])
+    total_row = build_module2_total_row(df)
+    assert total_row["IdFisico"] == "TOTAL"
+    assert total_row["Local do imóvel"] == ""
+    assert total_row["Normal"] == 150.0
+    assert total_row["À vista"] == 110.5
+    assert total_row["8x - 90%"] == 15.65
+    assert total_row["60x - 40%"] == 3.5

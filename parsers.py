@@ -321,6 +321,19 @@ def build_total_row(totals: dict[str, float], columns: list[str]) -> dict:
     return row
 
 
+def build_module2_total_row(df: pd.DataFrame) -> dict:
+    """Última linha do Módulo 2: somatória geral de cada coluna de REFIS
+    (Normal e parcelas dos planos) entre todos os cadastros."""
+    columns = list(df.columns)
+    row = {c: "" for c in columns}
+    if "IdFisico" in row:
+        row["IdFisico"] = "TOTAL"
+    for col in (["Normal"] + [label for label, _ in PLAN_LABELS]):
+        if col in df.columns:
+            row[col] = pd.to_numeric(df[col], errors="coerce").sum()
+    return row
+
+
 def _vencimento_to_mes(value: object) -> str:
     """Converte um vencimento em 'YYYY-MM' para consultar a tabela SELIC/INPC."""
     if value is None or (isinstance(value, float) and pd.isna(value)):

@@ -7,7 +7,7 @@ import streamlit as st
 from excel_utils import dataframe_to_xlsx
 from parsers import (
     accumulate_plan_totals, apply_installment_columns, build_module2,
-    build_total_row, new_plan_totals, parse_previsao_pdf,
+    build_module2_total_row, build_total_row, new_plan_totals, parse_previsao_pdf,
     read_debt_pdf, read_properties_pdf, read_sheet,
 )
 
@@ -127,6 +127,10 @@ else:
         for warning in st.session_state.get("module2_warnings", []):
             st.warning(warning)
         st.subheader("Prévia")
+        if not result.empty:
+            total_row = build_module2_total_row(result)
+            result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
+            st.caption("Linha TOTAL: somatória geral de Normal e de cada plano entre todos os imóveis.")
         st.dataframe(result, use_container_width=True, hide_index=True)
         st.download_button("⬇️ Baixar Excel", dataframe_to_xlsx(result, "Resultado"),
                            "cruzamento_debitos_imoveis.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
