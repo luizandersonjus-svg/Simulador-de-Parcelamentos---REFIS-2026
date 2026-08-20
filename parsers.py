@@ -603,7 +603,9 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
     year_col = str(today.year)
     merged[year_col] = counts.map(lambda n: "" if n == 0 else ("1 parcela vencida" if n == 1 else f"{n} parcelas vencidas"))
     merged["Exercício"] = merged.apply(
-        lambda r: f"{int(r.AnoInicial)} a {int(r.AnoFinal)}" if pd.notna(r.AnoInicial) else ("Sem débitos" if pd.isna(r.AnoInicial) and merged.at[r.name, year_col] == "" else ""), axis=1
+        lambda r: str(int(r.AnoInicial)) if pd.notna(r.AnoInicial) and r.AnoInicial == r.AnoFinal
+                else f"{int(r.AnoInicial)} a {int(r.AnoFinal)}" if pd.notna(r.AnoInicial)
+                else ("Sem débitos" if pd.isna(r.AnoInicial) and merged.at[r.name, year_col] == "" else ""), axis=1
     )
     merged["Normal"] = merged["Normal"].fillna(0.0)
 
