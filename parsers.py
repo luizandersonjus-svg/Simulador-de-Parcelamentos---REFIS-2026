@@ -599,12 +599,12 @@ def build_module2(debts: pd.DataFrame, properties: pd.DataFrame, today: date | N
     props = properties.copy()
     props["Origem_key"] = props["IdFisico"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
     merged = props.merge(grouped, on="Origem_key", how="left")
-    merged["Exercício"] = merged.apply(
-        lambda r: f"{int(r.AnoInicial)} a {int(r.AnoFinal)}" if pd.notna(r.AnoInicial) else "Sem débitos", axis=1
-    )
     counts = merged["Origem_key"].map(overdue).fillna(0).astype(int)
     year_col = str(today.year)
     merged[year_col] = counts.map(lambda n: "" if n == 0 else ("1 parcela vencida" if n == 1 else f"{n} parcelas vencidas"))
+    merged["Exercício"] = merged.apply(
+        lambda r: f"{int(r.AnoInicial)} a {int(r.AnoFinal)}" if pd.notna(r.AnoInicial) else ("Sem débitos" if pd.isna(r.AnoInicial) and merged.at[r.name, year_col] == "" else ""), axis=1
+    )
     merged["Normal"] = merged["Normal"].fillna(0.0)
 
     # Colunas de REFIS: valor da parcela já com desconto (total descontado ÷ nº de
